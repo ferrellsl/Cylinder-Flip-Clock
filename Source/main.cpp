@@ -48,6 +48,14 @@ int windowWidth=1000;
 int windowHeight=140;
 const int CLOCK_BORDER_PX = 24;
 
+// Current orthographic projection half-extents (world units), recomputed by
+// ReSizeGLScene() on every resize. DrawEdgeShading() reads orthoHalfHeight
+// to find exactly where the top/bottom of the current viewport sits, so its
+// shading tracks the real margin between the digit faces and the viewport
+// edge instead of a size baked in for one particular window shape.
+float orthoHalfWidth = 5.6f;
+float orthoHalfHeight = 0.515f;
+
 DWORD ticks=0;
 long int frames=0;
 int fps=0;
@@ -164,7 +172,66 @@ void drawpmam(bool pm)
 	glEnd();
 }
 
-int DrawGLScene(void)									
+// Darkens the margin area above and below the digit faces -- between the
+// numbers themselves and the top/bottom of the visible clock band -- with a
+// soft gradient, fading to fully transparent right at the digits. Purely a
+// flat, textureless strip otherwise reads as flat -- this gives the band a
+// subtle rounded/embossed look without ever touching the digits' own
+// texturing.
+//
+// Drawn directly in the clock's own world-space coordinates -- the same
+// modelview/projection the wheels themselves use -- rather than swapping
+// in a temporary screen-space orthographic overlay. Each wheel's readable
+// front facet spans a fixed Y range of +/-sin(18 deg) regardless of window
+// size (see drawwheel()/drawcolon()/drawpmam()), so the inner edge of the
+// gradient is anchored to that constant. The outer edge is anchored to
+// orthoHalfHeight, which ReSizeGLScene() keeps in sync with wherever the
+// current viewport's top/bottom edge actually sits -- so the shaded margin
+// always exactly fills the gap between the numbers and the edge of the
+// clock band no matter the window's size or aspect ratio, and never
+// overlaps the digits. Must be called with the same modelview transform
+// active as when the wheels were drawn (i.e. right after gluLookAt(), with
+// no leftover translation/rotation from the wheel-drawing loop -- see the
+// glPushMatrix/glPopMatrix wrapped around that loop in DrawGLScene()).
+void DrawEdgeShading(void)
+{
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_TEXTURE_2D);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	const float faceEdgeY  = 0.309f;		// sin(18 Degrees) -- The Wheel Faces' Fixed Y Extent
+	const float shadeAlpha = 0.8f;			// Darkest Point's Opacity, Right At The Viewport Edge
+	const float x          = 1.0f;			// Same Depth As The Wheels' Front-Facing Surface
+	const float zNear      = -2.0f;		// Comfortably Past The First Wheel
+	const float zFar       = 12.0f;		// Comfortably Past The Last Wheel
+
+	const float outerY = orthoHalfHeight;	// Wherever The Current Viewport's Top/Bottom Edge Sits
+
+	glBegin(GL_QUADS);
+		// Top Margin -- Dark At The Viewport Edge, Fading To Nothing Right At The Digit Face
+		glColor4f(0,0,0,shadeAlpha);
+		glVertex3f(x, outerY, zNear);
+		glVertex3f(x, outerY, zFar);
+		glColor4f(0,0,0,0);
+		glVertex3f(x, faceEdgeY, zFar);
+		glVertex3f(x, faceEdgeY, zNear);
+
+		// Bottom Margin -- Mirror Image Of The Above
+		glColor4f(0,0,0,0);
+		glVertex3f(x, -faceEdgeY, zNear);
+		glVertex3f(x, -faceEdgeY, zFar);
+		glColor4f(0,0,0,shadeAlpha);
+		glVertex3f(x, -outerY, zFar);
+		glVertex3f(x, -outerY, zNear);
+	glEnd();
+
+	glDisable(GL_BLEND);
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_DEPTH_TEST);
+}
+
+int DrawGLScene(void)
 {
 	// int hour10=0,hour1=0,min10=0,min1=0,sec10=0,sec1=0;
 	int hours=0, minutes=0, seconds=0;
@@ -218,15 +285,16 @@ int DrawGLScene(void)
 		gluLookAt(10,0,5,
 				  0,0,5,
 				  0,1,0);
+		glPushMatrix();
 		for (int x=0;x<9;x++)
 		{
 			glTranslatef(0,0,1);
 			glRotatef(rot[x],0,0,1);
 			if ((x!=3)&(x!=6)&&(x!=0))
-			{	
+			{
 				drawwheel(dat[x]);
 			}
-			else 
+			else
 			{
 				if (x!=0)
 					drawcolon();
@@ -235,8 +303,11 @@ int DrawGLScene(void)
 			}
 			glRotatef(rot[x],0,0,-1);
 		}
-	}						
-	return true;									
+		glPopMatrix();		// Undo The Loop's Cumulative Z-Translation Before Drawing The Shading Below
+
+		DrawEdgeShading();
+	}
+	return true;
 }
 
 void ReSizeGLScene(GLsizei width, GLsizei height)
@@ -278,6 +349,9 @@ void ReSizeGLScene(GLsizei width, GLsizei height)
 		halfHeight = contentHalfWidth/aspect;
 	halfHeight *= margin;
 	float halfWidth = halfHeight*aspect;
+
+	orthoHalfWidth = halfWidth;
+	orthoHalfHeight = halfHeight;
 
 	glOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, 0.1, 100.0);
 
