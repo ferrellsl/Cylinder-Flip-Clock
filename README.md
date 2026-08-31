@@ -4,6 +4,7 @@ I have removed its dependencies on glaux, fixed a logic error for 12 am and 12 p
 
 This is a flip clock where the numbers rotate around a cylinder to display the correct time.
 
-<img width="1837" height="640" alt="image" src="https://github.com/user-attachments/assets/67708dc7-3449-46d6-9999-a9abb97c9c0b" />
+<img width="1669" height="546" alt="image" src="https://github.com/user-attachments/assets/1a12e7f9-5c70-43c1-a1e4-aca1edc3cfd6" />
+
 
 To build, open the Visual Studio Solution file and select "Build".
