@@ -781,7 +781,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 		case WM_KEYDOWN:
 			{
-
+				// WM_KEYDOWN is only ever delivered to whichever window
+				// currently has keyboard focus, so handling Escape here
+				// (instead of polling GetAsyncKeyState(VK_ESCAPE) in the
+				// main loop, which reports the physical key's state
+				// system-wide regardless of focus) means Escape only
+				// closes the clock when its window is the one actually
+				// focused.
+				if (wParam==VK_ESCAPE)
+				{
+					PostQuitMessage(0);
+				}
 			}
 			break;
 	}
@@ -818,17 +828,13 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 		}
 		else									
 		{
-			if (active)							
+			if (active)
 			{
-				if (GetAsyncKeyState(VK_ESCAPE)!=0)			
-				{
-					done=true;						
-				}
-				else								
-				{
-					DrawGLScene();
-					SwapBuffers(hDC);								
-				}
+				// Escape is handled in WndProc's WM_KEYDOWN case, which
+				// only fires while this window has keyboard focus -- see
+				// the comment there.
+				DrawGLScene();
+				SwapBuffers(hDC);
 			}
 		}
 	}
