@@ -807,7 +807,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 	// The clock face is a short, wide strip (roughly 16:1), nothing like
 	// 640x480 (4:3) -- that mismatch is what was leaving so much black
 	// space above and below it. This shape gets much closer.
-	if (!CreateGLWindow("3D RPG DEMO",1000,140,16,fullscreen))
+	if (!CreateGLWindow("Cylinder Clock",1000,340,16,fullscreen))
 	{
 		return 0;								
 	}
