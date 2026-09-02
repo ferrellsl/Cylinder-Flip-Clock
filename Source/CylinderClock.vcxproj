@@ -131,8 +131,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="numbers_bmp_data.h" />
-    <ClInclude Include="numbers_dark_bmp_data.h" />
+    <ClInclude Include="glyph_meshes.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
