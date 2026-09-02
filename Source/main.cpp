@@ -781,10 +781,21 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 		return false;					
 	}
 
-	ShowWindow(hWnd,SW_SHOW);					
-	SetForegroundWindow(hWnd);					
-	SetFocus(hWnd);								
-	ReSizeGLScene(width, height);				
+	// wc.hIcon (set above) reliably drives the title-bar and Alt-Tab icon,
+	// but the taskbar button doesn't always pick it up just from the
+	// window class -- setting it explicitly via WM_SETICON, for both the
+	// big (taskbar/Alt-Tab) and small (title-bar) sizes, is the standard
+	// fix. Done here, right before the window -- and its taskbar button --
+	// actually appears.
+	HICON hIconBig   = (HICON)LoadImage(hInstance, MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+	HICON hIconSmall = (HICON)LoadImage(hInstance, MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+	SendMessage(hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+	SendMessage(hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+
+	ShowWindow(hWnd,SW_SHOW);
+	SetForegroundWindow(hWnd);
+	SetFocus(hWnd);
+	ReSizeGLScene(width, height);
 
 	if (!InitGL())									
 	{
@@ -863,7 +874,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 	// The clock face is a short, wide strip (roughly 16:1), nothing like
 	// 640x480 (4:3) -- that mismatch is what was leaving so much black
 	// space above and below it. This shape gets much closer.
-	if (!CreateGLWindow("Cylinder Clock",1000,140,16,fullscreen))
+	if (!CreateGLWindow("Cylinder Clock",1000,340,16,fullscreen))
 	{
 		return 0;								
 	}
