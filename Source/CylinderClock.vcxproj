@@ -132,6 +132,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="numbers_bmp_data.h" />
+    <ClInclude Include="numbers_dark_bmp_data.h" />
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="CylinderClock.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="clock.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

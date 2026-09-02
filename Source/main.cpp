@@ -25,9 +25,15 @@
 // LoadDIBBitmap()/LoadDIBBitmapFromMemory(), so glaux is no longer needed
 // at all.
 
-// The digit atlas as a raw BMP byte array (NUMBERS_BMP_DATA), so the .exe
-// no longer needs Graphics\numbers.bmp shipped alongside it at runtime.
+// The digit atlas as raw BMP byte arrays, so the .exe no longer needs the
+// Graphics\ bitmaps shipped alongside it at runtime. Two variants: a dark
+// numeral on a white field (NUMBERS_BMP_DATA), used only for whichever
+// facet is currently displaying the live time, and a light raised numeral
+// on a solid black field (NUMBERS_DARK_BMP_DATA), used for every other
+// facet -- that's what marks the current digit now, instead of a red tint.
 #include "numbers_bmp_data.h"
+#include "numbers_dark_bmp_data.h"
+#include "resource.h"		// IDI_ICON1 -- the clock icon baked in via CylinderClock.rc
 
 HDC			hDC=NULL;		
 HGLRC		hRC=NULL;	
@@ -72,85 +78,88 @@ LRESULT	CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
 void drawwheel(int num)
 {
-
 	int x=0;
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, texture[0]);
-	glBegin(GL_QUADS);
+	glColor3f(1,1,1);
 	for (int dir=0;dir<360;dir+=36)
 	{
-		if (x==num)
-		{
-			glColor3f(1,0,0);
-		}
-		else
-		{
-			glColor3f(1,1,1);
-		}
-		glTexCoord2f(.0625*x,0);
-		glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
-		glTexCoord2f(.0625*(x+1),0);
-		glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
-		glTexCoord2f(.0625*(x+1),1);
-		glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
-		glTexCoord2f(.0625*x,1);
-		glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),.5);
+		// Which digit is "current" used to be shown by tinting a shared
+		// texture red; now it's shown by which of the two digit atlases
+		// this facet is textured with -- texture[0] (dark numeral, white
+		// field) for the one facet that's actually displaying the live
+		// time, texture[1] (light raised numeral, black field) for every
+		// other facet, so the numeral's own brightness against black does
+		// the highlighting instead of a colored background. A texture bind
+		// can't happen inside glBegin/glEnd, so each facet gets its own.
+		glBindTexture(GL_TEXTURE_2D, (x==num) ? texture[0] : texture[1]);
+		glBegin(GL_QUADS);
+			// Each vertex's normal is just its own radial direction on the
+			// unit drum (same cos/sin used for its position, Z=0) -- with
+			// GL_SMOOTH shading this blends smoothly across the facet,
+			// giving the drum a real curved-surface roll-off toward the
+			// light instead of every facet being a uniformly flat-lit
+			// plane.
+			glNormal3f(cos(dir*piover180),sin(dir*piover180),0);
+			glTexCoord2f(.0625*x,0);
+			glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
+			glTexCoord2f(.0625*(x+1),0);
+			glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
+			glNormal3f(cos((dir+36)*piover180),sin((dir+36)*piover180),0);
+			glTexCoord2f(.0625*(x+1),1);
+			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
+			glTexCoord2f(.0625*x,1);
+			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),.5);
+		glEnd();
 		x++;
 	}
-	glEnd();
 }
 
 void drawcolon()
 {
+	// The colon never rotates (rot[3]/rot[6] stay at a constant -18), so
+	// facet x==0 is always the one actually shown up front -- same active/
+	// inactive texture split as drawwheel(), just fixed to that one facet.
 	int x=0;
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, texture[0]);
-	glBegin(GL_QUADS);
+	glColor3f(1,1,1);
 	for (int dir=0;dir<360;dir+=36)
 	{
-		if (x==0)
-		{
-			glColor3f(1,0,0);
-		}
-		else
-		{
-			glColor3f(1,1,1);
-		}		
-		glTexCoord2f(.0625*11,0);
-		glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
-		glTexCoord2f(.0625*(11+1),0);
-		glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
-		glTexCoord2f(.0625*(11+1),1);
-		glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
-		glTexCoord2f(.0625*11,1);
-		glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),.5);
+		glBindTexture(GL_TEXTURE_2D, (x==0) ? texture[0] : texture[1]);
+		glBegin(GL_QUADS);
+			glNormal3f(cos(dir*piover180),sin(dir*piover180),0);
+			glTexCoord2f(.0625*11,0);
+			glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
+			glTexCoord2f(.0625*(11+1),0);
+			glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
+			glNormal3f(cos((dir+36)*piover180),sin((dir+36)*piover180),0);
+			glTexCoord2f(.0625*(11+1),1);
+			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
+			glTexCoord2f(.0625*11,1);
+			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),.5);
+		glEnd();
 		x++;
 	}
-	glEnd();
 }
 
 void drawpmam(bool pm)
 {
+	// Same fixed, non-rotating facet as drawcolon() -- x==0 is always the
+	// one shown up front.
 	int x=0;
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, texture[0]);
-	glBegin(GL_QUADS);
+	glColor3f(1,1,1);
 	for (int dir=0;dir<360;dir+=36)
 	{
-		if (x==0)
-		{
-			glColor3f(1,0,0);
-		}
-		else
-		{
-			glColor3f(1,1,1);
-		}		
+		glBindTexture(GL_TEXTURE_2D, (x==0) ? texture[0] : texture[1]);
+		glBegin(GL_QUADS);
 		if (pm)
 		{
+			glNormal3f(cos(dir*piover180),sin(dir*piover180),0);
 			glTexCoord2f(.0625*12,0);
 			glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
 			glTexCoord2f(.0625*(12+1),0);
 			glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
+			glNormal3f(cos((dir+36)*piover180),sin((dir+36)*piover180),0);
 			glTexCoord2f(.0625*(12+1),1);
 			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
 			glTexCoord2f(.0625*12,1);
@@ -158,18 +167,20 @@ void drawpmam(bool pm)
 		}
 		else
 		{
+			glNormal3f(cos(dir*piover180),sin(dir*piover180),0);
 			glTexCoord2f(.0625*13,0);
 			glVertex3f(cos(dir*piover180),sin(dir*piover180),.5);
 			glTexCoord2f(.0625*(13+1),0);
 			glVertex3f(cos(dir*piover180),sin(dir*piover180),-.5);
+			glNormal3f(cos((dir+36)*piover180),sin((dir+36)*piover180),0);
 			glTexCoord2f(.0625*(13+1),1);
 			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),-.5);
 			glTexCoord2f(.0625*13,1);
 			glVertex3f(cos((dir+36)*piover180),sin((dir+36)*piover180),.5);
 		}
+		glEnd();
 		x++;
 	}
-	glEnd();
 }
 
 // Darkens the margin area above and below the digit faces -- between the
@@ -197,6 +208,7 @@ void DrawEdgeShading(void)
 {
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_LIGHTING);	// Flat Vertex-Alpha Overlay -- Not A Lit Surface, And Draws No Normals
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -228,6 +240,7 @@ void DrawEdgeShading(void)
 
 	glDisable(GL_BLEND);
 	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_LIGHTING);
 	glEnable(GL_DEPTH_TEST);
 }
 
@@ -502,10 +515,13 @@ RGBImage *LoadDIBBitmapFromMemory(const unsigned char *bytes, unsigned int len)
 
 void LoadGLTextures()                                    // Load Bitmaps And Convert To Textures
 {
-	// The digit atlas used to be read from Graphics\numbers.bmp (by way of
-	// Graphics\textures.txt listing it) at runtime. It's now compiled
-	// straight into the .exe as NUMBERS_BMP_DATA, so there's no file I/O
-	// and nothing extra to ship alongside the binary.
+	// The digit atlases used to be read from Graphics\*.bmp (by way of
+	// Graphics\textures.txt listing them) at runtime. They're now compiled
+	// straight into the .exe as byte arrays, so there's no file I/O and
+	// nothing extra to ship alongside the binary. texture[0] is the
+	// light/white-field atlas (drawn only for the currently-active facet),
+	// texture[1] is the dark/black-field atlas (drawn for every other
+	// facet) -- see the comment above the #includes.
 	RGBImage *TextureImage = LoadDIBBitmapFromMemory(NUMBERS_BMP_DATA, NUMBERS_BMP_DATA_LEN);
 
 	if (TextureImage)
@@ -520,6 +536,21 @@ void LoadGLTextures()                                    // Load Bitmaps And Con
 		free(TextureImage->data);
 		free(TextureImage);
 	}
+
+	RGBImage *TextureImageDark = LoadDIBBitmapFromMemory(NUMBERS_DARK_BMP_DATA, NUMBERS_DARK_BMP_DATA_LEN);
+
+	if (TextureImageDark)
+	{
+		glGenTextures(1, &texture[1]);
+
+		glBindTexture(GL_TEXTURE_2D, texture[1]);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_NEAREST);
+		gluBuild2DMipmaps(GL_TEXTURE_2D, 3, TextureImageDark->sizeX, TextureImageDark->sizeY, GL_RGB, GL_UNSIGNED_BYTE, TextureImageDark->data);
+
+		free(TextureImageDark->data);
+		free(TextureImageDark);
+	}
 }
 
 int InitGL(void)									
@@ -532,6 +563,26 @@ int InitGL(void)
 	glDepthFunc(GL_LEQUAL);							
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
+
+	// A single directional light shining roughly from the camera's side
+	// (see drawwheel()'s per-vertex radial normals) gives the digit drum a
+	// sense of actually curving away toward its edges -- the front-facing
+	// facet catches full light while the partial facets peeking above and
+	// below it dim slightly, reinforcing the cylinder shape. Ambient is
+	// kept fairly high so nothing goes dark enough to hurt readability.
+	// GL_COLOR_MATERIAL ties the existing glColor3f() calls (the red/white
+	// active-digit highlighting) into the lit material color, so they keep
+	// working exactly as before, just now modulated by the light too.
+	GLfloat lightDir[]  = {1.0f, 0.0f, 0.0f, 0.0f};
+	GLfloat lightAmb[]  = {0.55f, 0.55f, 0.55f, 1.0f};
+	GLfloat lightDiff[] = {0.6f, 0.6f, 0.6f, 1.0f};
+	glLightfv(GL_LIGHT0, GL_POSITION, lightDir);
+	glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmb);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiff);
+	glEnable(GL_LIGHT0);
+	glEnable(GL_LIGHTING);
+	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+	glEnable(GL_COLOR_MATERIAL);
 
 	return true;
 }
@@ -598,7 +649,12 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 	wc.cbClsExtra		= 0;									
 	wc.cbWndExtra		= 0;								
 	wc.hInstance		= hInstance;						
-	wc.hIcon			= LoadIcon(NULL, IDI_WINLOGO);		
+	// The custom clock icon (CylinderClock.rc) -- used for the window's
+	// title-bar icon here, and separately as the .exe/taskbar icon just by
+	// virtue of being the resource script's first/only icon. RegisterClass
+	// (as opposed to RegisterClassEx) has no separate "small icon" slot, so
+	// Windows automatically scales this one down for the title bar.
+	wc.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
 	wc.hCursor			= LoadCursor(NULL, IDC_ARROW);		
 	wc.hbrBackground	= NULL;								
 	wc.lpszMenuName		= NULL;								
@@ -807,7 +863,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 	// The clock face is a short, wide strip (roughly 16:1), nothing like
 	// 640x480 (4:3) -- that mismatch is what was leaving so much black
 	// space above and below it. This shape gets much closer.
-	if (!CreateGLWindow("Cylinder Clock",1000,340,16,fullscreen))
+	if (!CreateGLWindow("Cylinder Clock",1000,140,16,fullscreen))
 	{
 		return 0;								
 	}

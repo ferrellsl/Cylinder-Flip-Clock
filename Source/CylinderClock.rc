@@ -1,0 +1,5 @@
+// Program icon -- used for the .exe file icon, the taskbar, and the
+// window's title-bar icon (set on the WNDCLASS in main.cpp).
+#include "resource.h"
+
+IDI_ICON1 ICON "clock.ico"
