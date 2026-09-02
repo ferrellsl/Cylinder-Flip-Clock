@@ -4,7 +4,8 @@ I have removed its dependencies on glaux, fixed a logic error for 12 am and 12 p
 
 This is a flip clock where the numbers rotate around a cylinder to display the correct time, much like a bicycle cylinder combination lock.
 
-<img width="2476" height="862" alt="image" src="https://github.com/user-attachments/assets/0a6ab4b2-94e3-4b20-a6cd-66d47457cd87" />
+<img width="1769" height="811" alt="image" src="https://github.com/user-attachments/assets/08eb1fe4-733f-4d4c-92fc-5d6cbe08a3f4" />
+
 
 
 
