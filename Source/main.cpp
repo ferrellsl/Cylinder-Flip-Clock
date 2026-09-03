@@ -182,21 +182,40 @@ FacetGeometry ComputeFacetGeometry(float dir)
 // coplanar, which would z-fight/flicker where the glyph's mesh touches
 // the field.
 //
-// Deliberately left out of the specular highlight and the chrome env-map
-// reflection (see InitGL/DrawGlyphOnFacet) -- those are meant to be the
-// *raised metal glyph's* shine, not the flat backdrop's. Letting them
-// hit the field too was what made a white active-facet field wash the
-// ink digit sitting on it out to solid white: white is already at the
-// top of the range, so any extra light added on top of it couldn't go
-// anywhere, while the same addition on the (usually somewhat darker) ink
-// pushed it up to meet it, erasing the contrast between the two.
+// Used to be left out of the specular highlight and chrome env-map
+// reflection entirely -- those were the *raised metal glyph's* shine
+// only, not the flat backdrop's, because letting either hit the field
+// was what made a white active-facet field wash the ink digit sitting on
+// it out to solid white (white is already at the top of the range, so
+// extra light added on top of it can't go anywhere, while the same
+// addition on the usually-darker ink pushed it up to meet it, erasing
+// the contrast between the two). That's still true of the *ink's*
+// reflection strength (inkSpec/envMapTexture over in DrawGlyphOnFacet),
+// left untouched.
 //
-// Does get its own subtle fine-grain noise (CreateFacetTexture()), though
-// -- explicit texture coordinates (not the glyph's sphere-map texgen,
-// switched off here), tiled a handful of times across the facet for a
-// fine speckle rather than one giant smear, and GL_MODULATE (not
-// GL_ADD), so it can only darken the field a little, never brighten it
-// past the carefully-tuned base color.
+// The field itself now gets its own much weaker version of the same two
+// tricks -- a modest specular material (fieldSpec below) on the base
+// pass, plus a second, additive glaze pass afterward reusing the chrome
+// env-map -- for a "wet gloss coat" look requested on top of the plain
+// metal finish. Two passes rather than one because the base pass already
+// spends the single texture unit on the grain texture (GL_MODULATE); the
+// reflection needs the env-map bound instead, so it's drawn as a second
+// full pass over the same quad, blended additively (GL_ONE,GL_ONE) on
+// top of the framebuffer rather than replacing it. glDepthFunc(GL_LEQUAL)
+// is already the global depth test (see InitGL), so the second pass's
+// identical vertices pass depth against the first pass without z-fighting;
+// glDepthMask(GL_FALSE) keeps it from writing the depth buffer a second
+// time regardless. Kept deliberately weak (see reflectTint below) to
+// avoid re-triggering the same washout that hitting the field used to
+// cause -- this is meant to read as a thin coat sweeping across the
+// surface as the drum turns, not as another light source.
+//
+// Also gets its own subtle grain noise (CreateFacetTexture()), on the
+// base pass only -- explicit texture coordinates (not the glyph's
+// sphere-map texgen), tiled a handful of times across the facet for a
+// speckle rather than one giant smear, and GL_MODULATE (not GL_ADD), so
+// it can only darken the field a little, never brighten it past the
+// carefully-tuned base color.
 void DrawFacetField(float dir, float r, float g, float b)
 {
 	FacetGeometry fg = ComputeFacetGeometry(dir);
@@ -204,8 +223,15 @@ void DrawFacetField(float dir, float r, float g, float b)
 	float ox = fg.Nx*recess, oy = fg.Ny*recess;
 	const float rep = 5.0f;	// Texture Repeat Count Across Each Axis Of The Facet
 
-	static const GLfloat noSpec[] = {0.0f,0.0f,0.0f,1.0f};
-	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, noSpec);
+	// Pass 1: base field color, grain-modulated, with a modest specular
+	// material so the flat facet picks up a sliding highlight as it
+	// turns through the light (the same GL_LIGHT_MODEL_LOCAL_VIEWER
+	// mechanism that gave the glyphs a moving highlight instead of a
+	// uniform flat glow -- see InitGL). Weaker and less tightly focused
+	// than the glyph ink's own specular (inkSpec in DrawGlyphOnFacet) so
+	// the numbers still read as the shinier, raised element.
+	static const GLfloat fieldSpec[] = {0.30f,0.30f,0.32f,1.0f};
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, fieldSpec);
 	glDisable(GL_TEXTURE_GEN_S);
 	glDisable(GL_TEXTURE_GEN_T);
 	glBindTexture(GL_TEXTURE_2D, facetTexture);
@@ -219,6 +245,36 @@ void DrawFacetField(float dir, float r, float g, float b)
 		glTexCoord2f(rep,rep); glVertex3f(fg.Bx+fg.chordX-ox,     fg.By+fg.chordY-oy,     fg.Bz-1.0f);
 		glTexCoord2f(0,rep);   glVertex3f(fg.Bx+fg.chordX-ox,     fg.By+fg.chordY-oy,     fg.Bz);
 	glEnd();
+
+	// Pass 2: thin additive reflection glaze, same quad, chrome env-map
+	// in place of the grain texture. Deliberately dim (reflectTint) --
+	// this is a coat of gloss over the tuned field color, not a second
+	// light source.
+	static const GLfloat noSpec[] = {0.0f,0.0f,0.0f,1.0f};
+	static const float reflectTint[3] = {0.20f,0.20f,0.22f};
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, noSpec);
+	glBindTexture(GL_TEXTURE_2D, envMapTexture);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glEnable(GL_TEXTURE_GEN_S);
+	glEnable(GL_TEXTURE_GEN_T);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);
+
+	glColor3f(reflectTint[0],reflectTint[1],reflectTint[2]);
+	glNormal3f(fg.Nx,fg.Ny,0);
+	glBegin(GL_QUADS);
+		glVertex3f(fg.Bx-ox,               fg.By-oy,               fg.Bz);
+		glVertex3f(fg.Bx-ox,               fg.By-oy,               fg.Bz-1.0f);
+		glVertex3f(fg.Bx+fg.chordX-ox,     fg.By+fg.chordY-oy,     fg.Bz-1.0f);
+		glVertex3f(fg.Bx+fg.chordX-ox,     fg.By+fg.chordY-oy,     fg.Bz);
+	glEnd();
+
+	glDisable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);	// Restore The Global Default (see InitGL)
+	glDepthMask(GL_TRUE);
+	glDisable(GL_TEXTURE_GEN_S);
+	glDisable(GL_TEXTURE_GEN_T);
 }
 
 // Transforms a glyph mesh, given in facet-local (u,v,w) coordinates (see
