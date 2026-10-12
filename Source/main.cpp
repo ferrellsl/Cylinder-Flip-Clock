@@ -78,7 +78,13 @@ int screennum=0;
 // letterbox strip reserved at the top and bottom of the window.
 int windowWidth=1000;
 int windowHeight=140;
-const int CLOCK_BORDER_PX = 24;
+const int CLOCK_BORDER_PX = 4;
+
+// The window's starting client size, and the shape it keeps when it is
+// resized by dragging (see WM_SIZING in WndProc): just the clock's own
+// proportions, with a small margin.
+const int CLOCK_WINDOW_W = 1000;
+const int CLOCK_WINDOW_H = 250;
 
 // Current orthographic projection half-extents (world units), recomputed by
 // ReSizeGLScene() on every resize. DrawEdgeShading() reads orthoHalfHeight
@@ -751,9 +757,9 @@ void ReSizeGLScene(GLsizei width, GLsizei height)
 	// The aspect ratio is computed from the *inset* viewport (see
 	// DrawGLScene), not the full window, since that's what the clock
 	// actually renders into once the top/bottom border is carved out.
-	const float contentHalfWidth  = 5.0f;    // digit wheels span world Z 0..10
-	const float contentHalfHeight = 0.31f;   // visible digit-face height in world Y
-	const float margin = 1.12f;              // 12% breathing room so digits don't touch the edge
+	const float contentHalfWidth  = 4.72f;   // digit wheels span world Z 0.5..9.5, a little more with the camera's tilt
+	const float contentHalfHeight = 1.13f;   // the drums (radius 1) and the digits standing out from them, in world Y
+	const float margin = 1.05f;              // 5% breathing room so the clock doesn't touch the edge
 
 	int insetHeight = height - 2*CLOCK_BORDER_PX;
 	if (insetHeight < 1)
@@ -1309,6 +1315,63 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			return 0;								
 		}
 
+		case WM_SIZING:
+		{
+			// Keep the window the clock's own shape while an edge or corner
+			// is dragged, so it never opens up empty space above and below
+			// the clock (or beside it): dragging a side sets the height from
+			// the width, dragging the top or bottom sets the width from the
+			// height, and a corner follows the width. The shape is that of
+			// the starting window (see WinMain), measured on the client
+			// area -- the frame and title bar are taken off first and put
+			// back after.
+			RECT *r = (RECT*)lParam;
+			RECT frame = {0,0,0,0};
+			AdjustWindowRectEx(&frame, GetWindowLong(hWnd,GWL_STYLE), false, GetWindowLong(hWnd,GWL_EXSTYLE));
+			int frameW = frame.right-frame.left, frameH = frame.bottom-frame.top;
+			int clientW = (r->right-r->left)-frameW, clientH = (r->bottom-r->top)-frameH;
+			if (wParam==WMSZ_TOP || wParam==WMSZ_BOTTOM)
+			{
+				clientW = (clientH*CLOCK_WINDOW_W + CLOCK_WINDOW_H/2)/CLOCK_WINDOW_H;
+				r->right = r->left+clientW+frameW;
+			}
+			else
+			{
+				clientH = (clientW*CLOCK_WINDOW_H + CLOCK_WINDOW_W/2)/CLOCK_WINDOW_W;
+				if (wParam==WMSZ_TOPLEFT || wParam==WMSZ_TOPRIGHT)
+					r->top = r->bottom-clientH-frameH;
+				else
+					r->bottom = r->top+clientH+frameH;
+			}
+			return TRUE;
+		}
+
+		case WM_GETMINMAXINFO:
+		{
+			// Maximized, the window is as wide as the screen and just as
+			// tall as the clock then needs -- a band across the middle of
+			// the screen -- instead of the whole screen, most of which the
+			// clock, four times as wide as it is tall, could only leave
+			// empty.
+			MINMAXINFO *m = (MINMAXINFO*)lParam;
+			RECT work;
+			if (SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0))
+			{
+				RECT frame = {0,0,0,0};
+				AdjustWindowRectEx(&frame, GetWindowLong(hWnd,GWL_STYLE), false, GetWindowLong(hWnd,GWL_EXSTYLE));
+				int frameW = frame.right-frame.left, frameH = frame.bottom-frame.top;
+				int clientW = work.right-work.left;
+				int clientH = (clientW*CLOCK_WINDOW_H + CLOCK_WINDOW_W/2)/CLOCK_WINDOW_W;
+				if (clientH+frameH > work.bottom-work.top)		// (A Screen Taller Than It Is Wide, Say)
+					clientH = work.bottom-work.top-frameH;
+				m->ptMaxSize.x = clientW+frameW;
+				m->ptMaxSize.y = clientH+frameH;
+				m->ptMaxPosition.x = work.left-frameW/2;
+				m->ptMaxPosition.y = work.top+((work.bottom-work.top)-(clientH+frameH))/2;
+			}
+			return 0;
+		}
+
 		case WM_PAINT:
 		{
 			// (Uncovered, restored, moved back on screen: draw again. The
@@ -1350,7 +1413,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 	// The clock face is a short, wide strip (roughly 16:1), nothing like
 	// 640x480 (4:3) -- that mismatch is what was leaving so much black
 	// space above and below it. This shape gets much closer.
-	if (!CreateGLWindow("Cylinder Clock",1000,340,32,fullscreen))
+	if (!CreateGLWindow("Cylinder Clock",CLOCK_WINDOW_W,CLOCK_WINDOW_H,32,fullscreen))
 	{
 		return 0;								
 	}
