@@ -37,6 +37,23 @@
 #include "glyph_meshes.h"
 #include "resource.h"		// IDI_ICON1 -- the clock icon baked in via CylinderClock.rc
 
+// Per-pixel shading (brushed-metal drums, polished digits, reflections,
+// shadows, smooth edges) -- see fancy.h. "fancy" is true while it is in
+// use: when the graphics driver can do it, and until F is pressed to
+// switch back to the plain fixed-function look that everything below
+// still draws when it is false.
+#include "fancy.h"
+bool fancy=false;
+float glyphDepth=0.05f;		// How Far The Digit Meshes Stand Out From Their Facet -- Measured In InitGL
+
+// The metals of the fancy look, as the colors they reflect: polished
+// brass digits on dark gunmetal drums, with the facets showing the time
+// anodized deep red (the red band of the original clock).
+const float FANCY_DRUM[3]       = {0.105f,0.115f,0.135f};
+const float FANCY_ACTIVE[3]     = {0.50f,0.035f,0.030f};
+const float FANCY_INK[3]        = {0.92f,0.62f,0.20f};
+const float FANCY_INK_ACTIVE[3] = {1.00f,0.70f,0.24f};
+
 HDC			hDC=NULL;		
 HGLRC		hRC=NULL;	
 HWND		hWnd=NULL;		
@@ -223,6 +240,28 @@ void DrawFacetField(float dir, float r, float g, float b)
 	float ox = fg.Nx*recess, oy = fg.Ny*recess;
 	const float rep = 5.0f;	// Texture Repeat Count Across Each Axis Of The Facet
 
+	if (fancy)
+	{
+		// One quad, shaded per pixel. Its normals are the drum's own at the
+		// facet's two edges -- pointing straight out from the axis there --
+		// rather than the flat facet's, so the light rolls round the drum as
+		// round a true cylinder. The texture coordinates run 0..1 across the
+		// wheel's width and 0..1 round the facet, for the shader's rim and
+		// seam lines.
+		float a0 = dir*piover180, a1 = (dir+36)*piover180;
+		fglUniform1i(fancyKind, FANCY_FIELD);
+		glColor3f(r,g,b);
+		glBegin(GL_QUADS);
+			glNormal3f(cos(a0),sin(a0),0);
+			glTexCoord2f(0,0); glVertex3f(fg.Bx-ox,           fg.By-oy,           fg.Bz);
+			glTexCoord2f(1,0); glVertex3f(fg.Bx-ox,           fg.By-oy,           fg.Bz-1.0f);
+			glNormal3f(cos(a1),sin(a1),0);
+			glTexCoord2f(1,1); glVertex3f(fg.Bx+fg.chordX-ox, fg.By+fg.chordY-oy, fg.Bz-1.0f);
+			glTexCoord2f(0,1); glVertex3f(fg.Bx+fg.chordX-ox, fg.By+fg.chordY-oy, fg.Bz);
+		glEnd();
+		return;
+	}
+
 	// Pass 1: base field color, grain-modulated, with a modest specular
 	// material so the flat facet picks up a sliding highlight as it
 	// turns through the light (the same GL_LIGHT_MODEL_LOCAL_VIEWER
@@ -305,6 +344,41 @@ void DrawGlyphOnFacet(const GlyphMesh &mesh, float dir, float r, float g, float 
 	unsigned int n = mesh.vertCount;
 	if (n > MAX_GLYPH_VERTS) n = MAX_GLYPH_VERTS;	// Should never happen -- safety clamp only
 
+	if (fancy)
+	{
+		// The digit's shadow on its facet: the mesh itself, pressed flat
+		// just above the facet and slid down and to the right (the key
+		// light is above and to the left), drawn dark and mostly
+		// transparent three times, each a little farther out, so the shadow
+		// is deep next to the digit and fades away from it.
+		fglUniform1i(fancyKind, FANCY_SHADOW);
+		glEnable(GL_BLEND);
+		glDepthMask(GL_FALSE);
+		glColor4f(0,0,0,0.10f);
+		for (int pass=1;pass<=3;pass++)
+		{
+			float du = 0.011f*pass, dv = -0.019f*pass;
+			for (unsigned int i=0;i<n;i++)
+			{
+				float u = src[i*6+0]+du;
+				float v = src[i*6+1]+dv;
+				if (u<0) u=0; if (u>1) u=1;
+				if (v<0) v=0; if (v>1) v=1;
+				scratchVerts[i*3+0] = fg.Bx + v*fg.chordX + 0.0015f*fg.Nx;
+				scratchVerts[i*3+1] = fg.By + v*fg.chordY + 0.0015f*fg.Ny;
+				scratchVerts[i*3+2] = fg.Bz - u;
+				scratchNormals[i*3+0] = fg.Nx;
+				scratchNormals[i*3+1] = fg.Ny;
+				scratchNormals[i*3+2] = 0;
+			}
+			glVertexPointer(3, GL_FLOAT, 0, scratchVerts);
+			glNormalPointer(GL_FLOAT, 0, scratchNormals);
+			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, mesh.indices);
+		}
+		glDisable(GL_BLEND);
+		glDepthMask(GL_TRUE);
+	}
+
 	for (unsigned int i=0;i<n;i++)
 	{
 		float u  = src[i*6+0];
@@ -339,6 +413,20 @@ void DrawGlyphOnFacet(const GlyphMesh &mesh, float dir, float r, float g, float 
 	// sphere-map's automatic reflection coordinates, so those need
 	// switching back on too, since DrawFacetField() turns them off to use
 	// its own explicit texture coordinates instead.
+	if (fancy)
+	{
+		// (the shader wants the facet's plane, to know how high up the
+		// digit each point is)
+		fglUniform1i(fancyKind, FANCY_GLYPH);
+		fglUniform3f(fancyFacetN, fg.Nx, fg.Ny, 0);
+		fglUniform1f(fancyFacetD, fg.Bx*fg.Nx + fg.By*fg.Ny);
+		glColor3f(r,g,b);
+		glVertexPointer(3, GL_FLOAT, 0, scratchVerts);
+		glNormalPointer(GL_FLOAT, 0, scratchNormals);
+		glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, mesh.indices);
+		return;
+	}
+
 	static const GLfloat inkSpec[] = {0.55f,0.55f,0.55f,1.0f};
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, inkSpec);
 	glBindTexture(GL_TEXTURE_2D, envMapTexture);
@@ -350,6 +438,73 @@ void DrawGlyphOnFacet(const GlyphMesh &mesh, float dir, float r, float g, float 
 	glVertexPointer(3, GL_FLOAT, 0, scratchVerts);
 	glNormalPointer(GL_FLOAT, 0, scratchNormals);
 	glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, mesh.indices);
+}
+
+// One facet of a wheel -- its field and the digit on it -- in the colors
+// of whichever look is in use.
+void DrawFacet(const GlyphMesh &mesh, float dir, bool active)
+{
+	if (fancy)
+	{
+		const float *field = active ? FANCY_ACTIVE : FANCY_DRUM;
+		const float *ink   = active ? FANCY_INK_ACTIVE : FANCY_INK;
+		DrawFacetField(dir, field[0],field[1],field[2]);
+		DrawGlyphOnFacet(mesh, dir, ink[0],ink[1],ink[2]);
+	}
+	else if (active)
+	{
+		DrawFacetField(dir, ACTIVE_FIELD_R,ACTIVE_FIELD_G,ACTIVE_FIELD_B);
+		DrawGlyphOnFacet(mesh, dir, INK_R,INK_G,INK_B);
+	}
+	else
+	{
+		DrawFacetField(dir, INACTIVE_FIELD_R,INACTIVE_FIELD_G,INACTIVE_FIELD_B);
+		DrawGlyphOnFacet(mesh, dir, INK_R,INK_G,INK_B);
+	}
+}
+
+// The two flat ends of a wheel, dark, a little smaller than its faces:
+// what shows in the gap where one wheel has turned and its neighbor
+// hasn't. (Fancy look only: the plain one leaves the drums open-ended.)
+void DrawWheelEnds(void)
+{
+	fglUniform1i(fancyKind, FANCY_CAP);
+	glColor3f(0.030f,0.032f,0.038f);
+	for (int side=0;side<2;side++)
+	{
+		float z = side ? -0.5f : 0.5f;
+		glNormal3f(0,0, side ? -1.0f : 1.0f);
+		glBegin(GL_TRIANGLE_FAN);
+			glVertex3f(0,0,z);
+			for (int k=0;k<=10;k++)
+				glVertex3f(0.992f*cos(k*36*piover180), 0.992f*sin(k*36*piover180), z);
+		glEnd();
+	}
+}
+
+// The backdrop of the fancy look: the whole window, dark, a little
+// lighter behind the middle of the clock.
+void DrawBackdrop(void)
+{
+	fglUniform1i(fancyKind, FANCY_BACKDROP);
+	glDisable(GL_DEPTH_TEST);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+		glTexCoord2f(-1,-1); glVertex3f(-1,-1,0);
+		glTexCoord2f( 1,-1); glVertex3f( 1,-1,0);
+		glTexCoord2f( 1, 1); glVertex3f( 1, 1,0);
+		glTexCoord2f(-1, 1); glVertex3f(-1, 1,0);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	glEnable(GL_DEPTH_TEST);
 }
 
 int rot[9]={-18,-18,-18,-18,-18,-18,-18,-18,-18};
@@ -369,16 +524,7 @@ void drawwheel(int num)
 		// bound to; now it's the field/ink coloring below -- white field +
 		// dark ink for the one facet actually displaying the live time,
 		// dark gray field + light ink for every other facet.
-		if (x==num)
-		{
-			DrawFacetField(dir, ACTIVE_FIELD_R,ACTIVE_FIELD_G,ACTIVE_FIELD_B);
-			DrawGlyphOnFacet(*DIGIT_GLYPHS[x], dir, INK_R,INK_G,INK_B);
-		}
-		else
-		{
-			DrawFacetField(dir, INACTIVE_FIELD_R,INACTIVE_FIELD_G,INACTIVE_FIELD_B);
-			DrawGlyphOnFacet(*DIGIT_GLYPHS[x], dir, INK_R,INK_G,INK_B);
-		}
+		DrawFacet(*DIGIT_GLYPHS[x], dir, x==num);
 		x++;
 	}
 }
@@ -392,16 +538,7 @@ void drawcolon()
 	int x=0;
 	for (int dir=0;dir<360;dir+=36)
 	{
-		if (x==0)
-		{
-			DrawFacetField(dir, ACTIVE_FIELD_R,ACTIVE_FIELD_G,ACTIVE_FIELD_B);
-			DrawGlyphOnFacet(GLYPH_COLON, dir, INK_R,INK_G,INK_B);
-		}
-		else
-		{
-			DrawFacetField(dir, INACTIVE_FIELD_R,INACTIVE_FIELD_G,INACTIVE_FIELD_B);
-			DrawGlyphOnFacet(GLYPH_COLON, dir, INK_R,INK_G,INK_B);
-		}
+		DrawFacet(GLYPH_COLON, dir, x==0);
 		x++;
 	}
 }
@@ -414,16 +551,7 @@ void drawpmam(bool pm)
 	const GlyphMesh &glyph = pm ? GLYPH_PM : GLYPH_AM;
 	for (int dir=0;dir<360;dir+=36)
 	{
-		if (x==0)
-		{
-			DrawFacetField(dir, ACTIVE_FIELD_R,ACTIVE_FIELD_G,ACTIVE_FIELD_B);
-			DrawGlyphOnFacet(glyph, dir, INK_R,INK_G,INK_B);
-		}
-		else
-		{
-			DrawFacetField(dir, INACTIVE_FIELD_R,INACTIVE_FIELD_G,INACTIVE_FIELD_B);
-			DrawGlyphOnFacet(glyph, dir, INK_R,INK_G,INK_B);
-		}
+		DrawFacet(glyph, dir, x==0);
 		x++;
 	}
 }
@@ -535,6 +663,8 @@ int DrawGLScene(void)
 		// letterboxed border without needing any extra geometry.
 		glViewport(0,0,windowWidth,windowHeight);
 		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+		if (fancy)
+			DrawBackdrop();		// (Over The Whole Window, Border Strips Included)
 		glViewport(0,CLOCK_BORDER_PX,windowWidth,windowHeight-2*CLOCK_BORDER_PX);
 
 		glLoadIdentity();
@@ -563,6 +693,11 @@ int DrawGLScene(void)
 		{
 			glTranslatef(0,0,1);
 			glRotatef(rot[x],0,0,1);
+			if (fancy)
+			{
+				fglUniform1f(fancySeed, (float)x);	// Each Wheel Its Own Grain
+				DrawWheelEnds();
+			}
 			if ((x!=3)&(x!=6)&&(x!=0))
 			{
 				drawwheel(dat[x]);
@@ -578,7 +713,8 @@ int DrawGLScene(void)
 		}
 		glPopMatrix();		// Undo The Loop's Cumulative Z-Translation Before Drawing The Shading Below
 
-		DrawEdgeShading();
+		if (!fancy)
+			DrawEdgeShading();	// (The Fancy Look Shades The Drums Themselves, And Has Its Own Backdrop)
 	}
 	return true;
 }
@@ -872,7 +1008,32 @@ int InitGL(void)
 	// functions.
 	CreateFacetTexture();
 
+	// The fancy look, if this driver can do it (see fancy.h). How far the
+	// digits stand out is read from the meshes themselves.
+	glyphDepth = 0;
+	for (unsigned int i=0;i<GLYPH_0.vertCount;i++)
+		if (GLYPH_0.verts[i*6+2] > glyphDepth)
+			glyphDepth = GLYPH_0.verts[i*6+2];
+	if (glyphDepth <= 0)
+		glyphDepth = 0.05f;
+	fancy = getenv("CYLINDERCLOCK_PLAIN") == NULL && FancyInit();
+	if (fancy)
+	{
+		fglUseProgram(fancyProgram);
+		fglUniform1f(fancyDepth, glyphDepth);
+	}
+
 	return true;
+}
+
+// F switches between the fancy look and the plain one (if the fancy one
+// is available at all).
+void ToggleFancy(void)
+{
+	if (!fancyProgram)
+		return;
+	fancy = !fancy;
+	fglUseProgram(fancy ? fancyProgram : 0);
 }
 
 
@@ -1026,7 +1187,7 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 		0,										
 		0,										
 		0, 0, 0, 0,								
-		16,									  
+		24,									  
 		0,										
 		0,											
 		PFD_MAIN_PLANE,							
@@ -1041,7 +1202,12 @@ BOOL CreateGLWindow(char* title, int width, int height, int bits, bool fullscree
 		return false;							
 	}
 
-	if (!(PixelFormat=ChoosePixelFormat(hDC,&pfd)))	
+	// A multisampled format if there is one (smooth edges -- see fancy.h),
+	// else whatever plain one Windows picks.
+	PixelFormat = FancyMultisampleFormat(hInstance);
+	if (PixelFormat)
+		DescribePixelFormat(hDC, PixelFormat, sizeof(pfd), &pfd);
+	if (!PixelFormat && !(PixelFormat=ChoosePixelFormat(hDC,&pfd)))	
 	{
 		KillGLWindow();								
 		MessageBox(NULL,"Can't Find A Suitable PixelFormat.","ERROR",MB_OK|MB_ICONEXCLAMATION);
@@ -1147,6 +1313,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				{
 					PostQuitMessage(0);
 				}
+				if (wParam=='F')
+				{
+					ToggleFancy();
+				}
 			}
 			break;
 	}
@@ -1162,7 +1332,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 	// The clock face is a short, wide strip (roughly 16:1), nothing like
 	// 640x480 (4:3) -- that mismatch is what was leaving so much black
 	// space above and below it. This shape gets much closer.
-	if (!CreateGLWindow("Cylinder Clock",1000,340,16,fullscreen))
+	if (!CreateGLWindow("Cylinder Clock",1000,340,32,fullscreen))
 	{
 		return 0;								
 	}

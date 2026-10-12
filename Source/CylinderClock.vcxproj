@@ -131,6 +131,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="fancy.h" />
     <ClInclude Include="glyph_meshes.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
