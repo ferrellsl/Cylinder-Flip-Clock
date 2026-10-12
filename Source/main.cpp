@@ -44,6 +44,13 @@
 // still draws when it is false.
 #include "fancy.h"
 bool fancy=false;
+
+// The picture changes only when the second does (the wheels step, they
+// don't glide), so the main loop draws once per second and sleeps in
+// between rather than redrawing the same frame as fast as it can.
+// needRedraw asks for a frame out of turn: the window was resized or
+// uncovered, or the look was switched.
+bool needRedraw=true;
 float glyphDepth=0.05f;		// How Far The Digit Meshes Stand Out From Their Facet -- Measured In InitGL
 
 // The metals of the fancy look, as the colors they reflect: polished
@@ -1034,6 +1041,7 @@ void ToggleFancy(void)
 		return;
 	fancy = !fancy;
 	fglUseProgram(fancy ? fancyProgram : 0);
+	needRedraw = true;
 }
 
 
@@ -1297,7 +1305,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		case WM_SIZE:								
 		{
 			ReSizeGLScene(LOWORD(lParam),HIWORD(lParam));  
+			needRedraw = true;
 			return 0;								
+		}
+
+		case WM_PAINT:
+		{
+			// (Uncovered, restored, moved back on screen: draw again. The
+			// drawing itself happens in the main loop.)
+			ValidateRect(hWnd, NULL);
+			needRedraw = true;
+			return 0;
 		}
 
 		case WM_KEYDOWN:
@@ -1353,13 +1371,26 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance, LPSTR lpCmdLine,
 		}
 		else									
 		{
-			if (active)
+			// Escape is handled in WndProc's WM_KEYDOWN case, which
+			// only fires while this window has keyboard focus -- see
+			// the comment there.
+			static time_t drawn = 0;
+			time_t now = time(NULL);
+			if (active && (needRedraw || now != drawn))
 			{
-				// Escape is handled in WndProc's WM_KEYDOWN case, which
-				// only fires while this window has keyboard focus -- see
-				// the comment there.
+				needRedraw = false;
+				drawn = now;
 				DrawGLScene();
 				SwapBuffers(hDC);
+			}
+			else
+			{
+				// Nothing to draw: sleep until the next second begins, or
+				// until a message arrives (a key, a resize), whichever is
+				// first.
+				SYSTEMTIME st;
+				GetSystemTime(&st);
+				MsgWaitForMultipleObjects(0, NULL, FALSE, 1000 - st.wMilliseconds + 2, QS_ALLINPUT);
 			}
 		}
 	}
